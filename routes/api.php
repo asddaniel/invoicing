@@ -8,5 +8,5 @@ use App\Http\Controllers\Api\InvoiceGeneratorController;
 | API Routes
 |--------------------------------------------------------------------------
 */
-
-Route::post('/generate-invoice', [InvoiceGeneratorController::class, 'generate']);
+Route::post('/generate-invoice', [InvoiceGeneratorController::class, 'test']);
+//Route::post('/generate-invoice', [InvoiceGeneratorController::class, 'generate']);

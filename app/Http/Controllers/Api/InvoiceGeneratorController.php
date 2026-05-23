@@ -8,6 +8,7 @@ use App\Services\TemplateProcessorService;
 use App\Services\PdfConverterService;
 use Illuminate\Support\Facades\Log;
 use Exception;
+use Illuminate\Http\Request;
 
 class InvoiceGeneratorController extends Controller
 {
@@ -20,6 +21,11 @@ class InvoiceGeneratorController extends Controller
     ) {
         $this->templateProcessorService = $templateProcessorService;
         $this->pdfConverterService = $pdfConverterService;
+    }
+
+    public function test(Request $request){
+
+        Log::alert($request->all());
     }
 
     public function generate(GenerateInvoiceRequest $request)
