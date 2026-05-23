@@ -86,7 +86,7 @@ class PdfConverterService
 
             // On passe également le cookieJar ici pour que le serveur reconnaisse la session
             $statusResponse = Http::withOptions(['cookies' => $cookieJar])->get($statusUrl);
-
+                Log::alert($statusResponse);
             if ($statusResponse->successful()) {
                 $statusData = $statusResponse->json();
 

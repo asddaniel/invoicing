@@ -14,9 +14,6 @@ class InvoiceGeneratorController extends Controller
     protected TemplateProcessorService $templateProcessorService;
     protected PdfConverterService $pdfConverterService;
 
-    /**
-     * Injection des dépendances du traitement de template et du convertisseur.
-     */
     public function __construct(
         TemplateProcessorService $templateProcessorService,
         PdfConverterService $pdfConverterService
@@ -25,9 +22,6 @@ class InvoiceGeneratorController extends Controller
         $this->pdfConverterService = $pdfConverterService;
     }
 
-    /**
-     * Point d'entrée de l'API pour générer et renvoyer le PDF directement.
-     */
     public function generate(GenerateInvoiceRequest $request)
     {
         $validated = $request->validated();
@@ -39,17 +33,23 @@ class InvoiceGeneratorController extends Controller
             // 1. Génération du fichier Word temporaire (.docx)
             $tempDocxPath = $this->templateProcessorService->generateDocx($templateType, $validated);
 
-            // 2. Conversion du fichier Word en PDF binaire via l'API PDF24
+            // 2. Conversion du fichier Word en PDF
             $pdfContent = $this->pdfConverterService->convertDocxToPdf($tempDocxPath);
 
-            // 3. Détermination d'un nom de fichier cohérent pour le téléchargement
-            $docNumber = $validated['metadata']['invoice_number'] ?? 'DOC-' . date('Ymd-His');
+            // 3. Identification dynamique du numéro de document pour le renommage
+            $docNumber = $validated['metadata']['invoice_number']
+                ?? $validated['metadata']['delivery_note']
+                ?? $validated['metadata']['quote_no']
+                ?? $validated['invoice_number']
+                ?? $validated['delivery_note']
+                ?? 'DOC-' . date('Ymd-His');
+
             $filename = "{$templateType}_{$docNumber}.pdf";
 
-            // 4. Nettoyage du fichier Word temporaire local (Succès)
-           // $this->cleanupTemporaryFile($tempDocxPath);
+            // 4. Nettoyage du fichier local
+            $this->cleanupTemporaryFile($tempDocxPath);
 
-            // 5. Envoi direct du PDF dans la réponse HTTP
+            // 5. Envoi de la réponse PDF
             return response($pdfContent, 200, [
                 'Content-Type' => 'application/pdf',
                 'Content-Disposition' => 'inline; filename="' . $filename . '"',
@@ -59,16 +59,13 @@ class InvoiceGeneratorController extends Controller
             ]);
 
         } catch (Exception $e) {
-            // Enregistrement de l'anomalie dans les logs de Laravel
             Log::error("Échec lors de la génération du document PDF : " . $e->getMessage(), [
                 'template_type' => $templateType,
                 'exception' => $e,
             ]);
 
-            // Nettoyage du fichier Word temporaire local (Échec)
             $this->cleanupTemporaryFile($tempDocxPath);
 
-            // Retour d'un JSON clair indiquant l'erreur
             return response()->json([
                 'success' => false,
                 'message' => 'Une erreur technique est survenue lors de la création du document.',
@@ -77,9 +74,6 @@ class InvoiceGeneratorController extends Controller
         }
     }
 
-    /**
-     * Supprime le fichier temporaire du disque s'il existe.
-     */
     private function cleanupTemporaryFile(?string $path): void
     {
         if ($path && file_exists($path)) {
