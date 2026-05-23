@@ -62,6 +62,7 @@ class PdfConverterService
 
         $convertResponse = Http::withBody(json_encode($payload), 'application/json')
             ->post($convertUrl);
+            Log::alert($convertResponse);
 
         if (!$convertResponse->successful()) {
             throw new Exception("La demande de conversion a échoué sur les serveurs de PDF24.");
