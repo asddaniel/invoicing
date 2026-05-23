@@ -88,6 +88,7 @@ class PdfConverterService
             $attempt++;
 
             $statusResponse = Http::get($statusUrl);
+            Log::alert($statusResponse);
 
             if ($statusResponse->successful()) {
                 $statusData = $statusResponse->json();
