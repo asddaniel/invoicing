@@ -79,12 +79,12 @@ class PdfConverterService
         // --- ÉTAPE 3 : Suivi du statut (Polling) ---
         $statusUrl = "https://{$assignedHost}/client.php?action=getStatus&jobId={$jobId}";
         $isDone = false;
-        $maxAttempts = 25;
+        $maxAttempts = 35;
         $attempt = 0;
 
         while (!$isDone && $attempt < $maxAttempts) {
             // Pause de 2 secondes comme dans le code JS pour limiter les requêtes
-            sleep(3);
+            sleep(4);
             $attempt++;
 
             $statusResponse = Http::get($statusUrl);
