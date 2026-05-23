@@ -39,7 +39,7 @@ class TemplateProcessorService
         $this->fillMetadataAndVariables($templateProcessor, $templateVariables, $data);
 
         // 4. Sauvegarder le fichier Word généré dans un répertoire temporaire
-        $tempDocxPath = tempnam(sys_get_temp_dir(), 'docx_') . '.docx';
+        $tempDocxPath = tempnam("storage/app", 'docx_') . '.docx';
         Log::alert($tempDocxPath);
        // $pathX="app";
         $templateProcessor->saveAs($tempDocxPath);
