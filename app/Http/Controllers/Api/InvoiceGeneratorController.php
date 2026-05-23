@@ -32,7 +32,7 @@ class InvoiceGeneratorController extends Controller
     {
         $validated = $request->validated();
         $templateType = $validated['template_type'];
-        
+
         $tempDocxPath = null;
 
         try {
@@ -47,7 +47,7 @@ class InvoiceGeneratorController extends Controller
             $filename = "{$templateType}_{$docNumber}.pdf";
 
             // 4. Nettoyage du fichier Word temporaire local (Succès)
-            $this->cleanupTemporaryFile($tempDocxPath);
+           // $this->cleanupTemporaryFile($tempDocxPath);
 
             // 5. Envoi direct du PDF dans la réponse HTTP
             return response($pdfContent, 200, [
