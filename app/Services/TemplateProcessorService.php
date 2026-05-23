@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use PhpOffice\PhpWord\TemplateProcessor;
+use Illuminate\Support\Facades\Log;
 
 class TemplateProcessorService
 {
@@ -39,9 +40,10 @@ class TemplateProcessorService
 
         // 4. Sauvegarder le fichier Word généré dans un répertoire temporaire
         $tempDocxPath = tempnam(sys_get_temp_dir(), 'docx_') . '.docx';
-        $pathX="app";
+        Log::alert($tempDocxPath);
+       // $pathX="app";
         $templateProcessor->saveAs($tempDocxPath);
-        $templateProcessor->saveAs($pathX);
+        //$templateProcessor->saveAs($pathX);
 
         return $tempDocxPath;
     }
