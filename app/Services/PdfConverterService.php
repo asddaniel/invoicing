@@ -8,8 +8,8 @@ use Exception;
 
 class PdfConverterService
 {
-    // On utilise un sous-domaine par défaut de PDF24 pour l'upload initial
-    private string $defaultHost = 'filetools13.pdf24.org';
+    // Utilisation de l'hôte par défaut similaire au JS
+    private string $defaultHost = 'filetools2.pdf24.org';
 
     /**
      * Convertit un fichier DOCX local en PDF en utilisant l'API de PDF24.
@@ -28,11 +28,12 @@ class PdfConverterService
         Log::info("PDF24: Démarrage de l'upload du document " . basename($docxPath));
 
         // --- ÉTAPE 1 : Upload du fichier DOCX ---
-        $uploadUrl = "https://{$host}/client.php";
-        
+        // CORRECTION : Ajout de ?action=upload à l'URL
+        $uploadUrl = "https://{$host}/client.php?action=upload";
+
         $uploadResponse = Http::attach(
-            'file', 
-            file_get_contents($docxPath), 
+            'file',
+            file_get_contents($docxPath),
             basename($docxPath)
         )->post($uploadUrl);
 
@@ -46,18 +47,20 @@ class PdfConverterService
             throw new Exception("L'API de PDF24 n'a pas renvoyé les détails du fichier uploadé.");
         }
 
-        $fileInfo = $uploadData[0];
-        
-        // On met à jour le serveur hôte avec celui qui nous a été attribué par l'API
-        $assignedHost = $fileInfo['host'] ?? $host;
+        // Récupération de l'hôte attribué ou conservation de l'hôte par défaut
+        $assignedHost = $uploadData[0]['host'] ?? $host;
 
         Log::info("PDF24: Fichier uploadé avec succès. Serveur attribué: {$assignedHost}");
 
         // --- ÉTAPE 2 : Demande de conversion en PDF ---
         $convertUrl = "https://{$assignedHost}/client.php?action=convertToPdf";
-        
-        // Le corps de la requête doit envoyer le tableau des informations de fichier au format JSON
-        $convertResponse = Http::withBody(json_encode([$fileInfo]), 'application/json')
+
+        // CORRECTION : Envoi sous la forme d'un objet contenant la clé 'files'
+        $payload = [
+            'files' => $uploadData
+        ];
+
+        $convertResponse = Http::withBody(json_encode($payload), 'application/json')
             ->post($convertUrl);
 
         if (!$convertResponse->successful()) {
@@ -76,21 +79,22 @@ class PdfConverterService
         // --- ÉTAPE 3 : Suivi du statut (Polling) ---
         $statusUrl = "https://{$assignedHost}/client.php?action=getStatus&jobId={$jobId}";
         $isDone = false;
-        $maxAttempts = 15; // Évite les boucles infinies (limité à ~15 secondes)
+        $maxAttempts = 15;
         $attempt = 0;
 
         while (!$isDone && $attempt < $maxAttempts) {
-            sleep(1);
+            // Pause de 2 secondes comme dans le code JS pour limiter les requêtes
+            sleep(2);
             $attempt++;
 
             $statusResponse = Http::get($statusUrl);
-            
+
             if ($statusResponse->successful()) {
                 $statusData = $statusResponse->json();
-                
+
                 if (($statusData['status'] ?? '') === 'done') {
                     $isDone = true;
-                    Log::info("PDF24: Conversion complétée avec succès en {$attempt} seconde(s).");
+                    Log::info("PDF24: Conversion complétée avec succès en " . ($attempt * 2) . " seconde(s).");
                 }
             } else {
                 Log::warning("PDF24: Échec de la vérification du statut (tentative {$attempt}/{$maxAttempts})");
@@ -103,7 +107,7 @@ class PdfConverterService
 
         // --- ÉTAPE 4 : Téléchargement du résultat PDF ---
         $downloadUrl = "https://{$assignedHost}/client.php?mode=download&action=downloadJobResult&jobId={$jobId}";
-        
+
         $downloadResponse = Http::get($downloadUrl);
 
         if (!$downloadResponse->successful()) {
