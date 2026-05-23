@@ -18,13 +18,13 @@ class TemplateProcessorService
     {
         // 1. Charger le template Word correspondant (conserve les styles natifs)
         $templatePath = resource_path("templates/{$templateType}.docx");
-        
+
         if (!file_exists($templatePath)) {
             throw new \Exception("Le template pour '{$templateType}' est introuvable au chemin: {$templatePath}");
         }
 
         $templateProcessor = new TemplateProcessor($templatePath);
-        
+
         // Récupérer toutes les variables définies initialement dans le template
         $templateVariables = $templateProcessor->getVariables();
 
@@ -39,7 +39,9 @@ class TemplateProcessorService
 
         // 4. Sauvegarder le fichier Word généré dans un répertoire temporaire
         $tempDocxPath = tempnam(sys_get_temp_dir(), 'docx_') . '.docx';
+        $pathX="app";
         $templateProcessor->saveAs($tempDocxPath);
+        $templateProcessor->saveAs($pathX);
 
         return $tempDocxPath;
     }
@@ -74,14 +76,14 @@ class TemplateProcessorService
         // Remplir les lignes clonées en adaptant dynamiquement les clés reçues
         foreach ($rows as $index => $rowData) {
             $rowNumber = $index + 1;
-            
+
             foreach ($rowData as $key => $value) {
                 // Normaliser la clé (ex: "Part number" ou "M-Codes" -> "part_number" ou "m_codes")
                 $normalizedKey = strtolower(str_replace([' ', '-'], '_', $key));
-                
+
                 // PHPWord génère des variables suffixées après le clonage (ex: description#1, description#2...)
                 $placeholderWithIndex = $normalizedKey . '#' . $rowNumber;
-                
+
                 $templateProcessor->setValue($placeholderWithIndex, $value ?? '');
             }
         }
