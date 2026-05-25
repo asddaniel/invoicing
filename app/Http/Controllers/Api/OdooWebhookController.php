@@ -15,6 +15,7 @@ class OdooWebhookController extends Controller
     public function handle(Request $request)
     {
         $data = $request->all();
+        Log::alert($data);
 
         if (!isset($data['_model']) || !isset($data['_id'])) {
             Log::warning("Webhook Odoo invalide reçu : ", $data);
