@@ -12,9 +12,9 @@ return [
     |
     */
     'users_map' => [
-        'Destini Ballard' => 'destini.ballard@votre-entreprise.com',
-        'John Doe' => 'john.doe@votre-entreprise.com',
-        'Administrateur' => 'admin@votre-entreprise.com',
+        'Destini Ballard' => 'devasddaniel@gmail.com',
+        'John Doe' => 'devasddaniel@gmail.com',
+        'Administrateur' => 'devasddaniel@gmail.com',
         // Ajoutez ici la liste de vos collaborateurs
     ],
 
