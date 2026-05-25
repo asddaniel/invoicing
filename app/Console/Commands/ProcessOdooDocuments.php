@@ -1,5 +1,6 @@
 <?php
 
+// app/Console/Commands/ProcessOdooDocuments.php
 namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
@@ -13,7 +14,7 @@ use Exception;
 class ProcessOdooDocuments extends Command
 {
     protected $signature = 'odoo:process';
-    protected $description = 'Réconcilie les documents Odoo en attente, produit les PDF et les envoie par email';
+    protected $description = 'Réconcilie les documents Odoo, produit les PDF et les envoie par email';
 
     protected TemplateProcessorService $templateProcessor;
     protected PdfConverterService $pdfConverter;
@@ -29,7 +30,6 @@ class ProcessOdooDocuments extends Command
 
     public function handle()
     {
-        // Recherche des documents parents non traités
         $parents = OdooPayload::whereIn('model', ['account.move', 'sale.order', 'stock.picking'])
             ->whereNull('processed_at')
             ->get();
@@ -51,7 +51,6 @@ class ProcessOdooDocuments extends Command
         $expectedLineIds = [];
         $lineModel = '';
 
-        // Détection des identifiants de lignes attendues en fonction du type de document
         if ($model === 'account.move') {
             $expectedLineIds = $payload['invoice_line_ids'] ?? [];
             $lineModel = 'account.move.line';
@@ -68,38 +67,30 @@ class ProcessOdooDocuments extends Command
             return;
         }
 
-        // Récupération des lignes stockées en base de données pour ce document
         $receivedLines = OdooPayload::where('model', $lineModel)
             ->where('parent_identifier', $parent->parent_identifier)
             ->whereIn('odoo_id', $expectedLineIds)
             ->get();
 
-        // Si le nombre de lignes reçues est inférieur au nombre attendu, nous attendons le passage suivant
         if ($receivedLines->count() < count($expectedLineIds)) {
-            return;
+            return; // Données incompletes
         }
 
-        $this->info("Dossier complet. Traitement de : " . $parent->parent_identifier);
+        $this->info("Dossier complet pour : " . $parent->parent_identifier);
 
-        // Préparation et alignement des données pour le service de template
+        // Préparation du mappage ciblé des variables
         $normalizedData = $this->buildTemplateData($parent, $receivedLines);
 
-        // Génération du fichier Word temporaire puis conversion en PDF
         $tempDocxPath = $this->templateProcessor->generateDocx($normalizedData['template_type'], $normalizedData);
         $pdfContent = $this->pdfConverter->convertDocxToPdf($tempDocxPath);
 
-        // Résolution de l'adresse e-mail destinataire à partir du fichier .env
         $recipientEmail = $this->resolveRecipientEmail($payload);
-
-        // Envoi de l'e-mail avec l'adresse d'envoi système configurée dans le .env
         $this->sendEmail($recipientEmail, $normalizedData, $pdfContent);
 
-        // Nettoyage du fichier Word temporaire
         if (file_exists($tempDocxPath)) {
             unlink($tempDocxPath);
         }
 
-        // Marquage du document parent et de ses lignes comme traités
         $parent->update(['processed_at' => now()]);
         OdooPayload::where('model', $lineModel)
             ->where('parent_identifier', $parent->parent_identifier)
@@ -110,58 +101,136 @@ class ProcessOdooDocuments extends Command
     private function buildTemplateData(OdooPayload $parent, $lines): array
     {
         $payload = $parent->payload;
-        $type = 'invoice';
+        $model = $parent->model;
         $docNumber = $parent->parent_identifier;
-        $clientName = 'Client';
-        $date = now()->format('Y-m-d');
+        $issuerName = $payload['x_studio_from'] ?? 'Émetteur';
 
-        if ($parent->model === 'account.move') {
-            $type = 'invoice';
-            $clientName = $payload['invoice_partner_display_name'] ?? 'Client';
-            $date = $payload['invoice_date'] ?? $date;
-        } elseif ($parent->model === 'sale.order') {
-            $type = 'quote';
-            $clientName = $payload['partner_id'][1] ?? $payload['display_name'] ?? 'Client';
-            $date = $payload['date_order'] ?? $date;
-        } elseif ($parent->model === 'stock.picking') {
-            $type = 'delivery_note';
-            $clientName = $payload['partner_id'][1] ?? $payload['display_name'] ?? 'Client';
-            $date = $payload['date_done'] ?? $payload['scheduled_date'] ?? $date;
-        }
-
+        $metadata = [];
         $rows = [];
-        foreach ($lines as $line) {
-            $linePayload = $line->payload;
-            $rows[] = [
-                'item' => $linePayload['display_name'] ?? $linePayload['name'] ?? '',
-                'description' => $linePayload['name'] ?? '',
-                'quantity' => $linePayload['quantity'] ?? $linePayload['product_uom_qty'] ?? 1,
-                'price_unit' => $linePayload['price_unit'] ?? 0,
-                'price_subtotal' => $linePayload['price_subtotal'] ?? 0,
+        $templateType = '';
+
+        if ($model === 'account.move') {
+            $templateType = 'invoice';
+
+            // --- CIBLAGE GLOBAL INVOICE ---
+            $metadata = [
+                'client_name'             => $payload['invoice_partner_display_name'] ?? 'Client',
+                'adresse'                 => $payload['partner_id_address'] ?? '', // À ajuster selon les champs d'adresse reçus
+                'client_destination_name' => $payload['x_studio_destination_name'] ?? '',
+                'client_phone_number'     => $payload['x_studio_client_phone'] ?? '',
+                'issuer_name'             => $issuerName,
+                'vat_number'              => 'CD/LSH/RCCM/23-B-01177', // RCCM ou TVA de votre entreprise
+                'tax_number'              => 'A2317664B',
+                'invoice_number'          => $docNumber,
+                'purchase_order'          => $payload['invoice_origin'] ?? $payload['ref'] ?? '',
+                'client_vat_number'       => $payload['x_studio_client_vat'] ?? '',
+                'order_date'              => $payload['invoice_date'] ?? $payload['date'] ?? '',
+                'total_exclude_vat'       => number_format($payload['amount_untaxed'] ?? 0, 2, '.', ' '),
+                'vat'                     => number_format($payload['amount_tax'] ?? 0, 2, '.', ' '),
+                'total_include_vat'       => number_format($payload['amount_total'] ?? 0, 2, '.', ' '),
             ];
+
+            // --- CIBLAGE LIGNES INVOICE ---
+            foreach ($lines as $index => $line) {
+                $linePayload = $line->payload;
+                $rows[] = [
+                    'item'         => (string)($index + 1),
+                    'part_number'  => $this->extractPartNumber($linePayload['name'] ?? ''),
+                    'description'  => $linePayload['name'] ?? '',
+                    'unit_price'   => number_format($linePayload['price_unit'] ?? 0, 2, '.', ' '),
+                    'qty'          => (string)($linePayload['quantity'] ?? 1),
+                ];
+            }
+
+        } elseif ($model === 'sale.order') {
+            $templateType = 'quote';
+
+            // --- CIBLAGE GLOBAL QUOTATION ---
+            $metadata = [
+                'client_company_name' => $payload['partner_id'][1] ?? '',
+                'client_name'         => $payload['partner_id'][1] ?? '',
+                'client_phone'        => $payload['x_studio_phone'] ?? '',
+                'client_email'        => $payload['x_studio_email'] ?? '',
+                'client_address'      => $payload['x_studio_address'] ?? '',
+                'date'                => $payload['date_order'] ?? '',
+                'issuer_name'         => $issuerName,
+                'invoice_number'      => $docNumber, // Dans le template Quote No est mappé sur `${invoice_number}`
+                'quotation_name'      => $payload['name'] ?? 'Quotation',
+                'total_exclude_vat'   => number_format($payload['amount_untaxed'] ?? 0, 2, '.', ' '),
+                'vat'                 => number_format($payload['amount_tax'] ?? 0, 2, '.', ' '),
+                'total_include_vat'   => number_format($payload['amount_total'] ?? 0, 2, '.', ' '),
+                'delivery_delay'      => $payload['x_studio_delivery_delay'] ?? '4',
+            ];
+
+            // --- CIBLAGE LIGNES QUOTATION ---
+            foreach ($lines as $index => $line) {
+                $linePayload = $line->payload;
+                $rows[] = [
+                    'item'         => (string)($index + 1),
+                    'm_codes'      => $linePayload['product_id'][1] ?? '',
+                    'description'  => $linePayload['name'] ?? '',
+                    'unit_price'   => number_format($linePayload['price_unit'] ?? 0, 2, '.', ' '),
+                    'qty'          => (string)($linePayload['product_uom_qty'] ?? 1),
+                    'discount'     => number_format($linePayload['discount'] ?? 0, 2) . '%',
+                    'total_price'  => number_format($linePayload['price_subtotal'] ?? 0, 2, '.', ' '),
+                ];
+            }
+
+        } elseif ($model === 'stock.picking') {
+            $templateType = 'delivery_note';
+
+            // --- CIBLAGE GLOBAL DELIVERY NOTE ---
+            $metadata = [
+                'order_date'      => $payload['scheduled_date'] ?? '',
+                'order_number'    => $payload['origin'] ?? '',
+                'delivery_note'   => $docNumber,
+                'customer'        => $payload['partner_id'][1] ?? '',
+                'dispatch_date'   => $payload['date_done'] ?? '',
+                'delivery_method' => $payload['picking_type_id'][1] ?? '',
+                'customer_name'   => $payload['partner_id'][1] ?? '',
+                'customer_address'=> $payload['x_studio_customer_address'] ?? '',
+                'delivery_days'   => $payload['x_studio_delivery_days'] ?? '15',
+                'issuer_name'     => $issuerName,
+            ];
+
+            // --- CIBLAGE LIGNES DELIVERY NOTE ---
+            foreach ($lines as $line) {
+                $linePayload = $line->payload;
+                $ordered = $linePayload['product_uom_qty'] ?? 1;
+                $delivered = $linePayload['quantity'] ?? $ordered;
+                $outstanding = max(0, $ordered - $delivered);
+
+                $rows[] = [
+                    'tab_part_number'      => $this->extractPartNumber($linePayload['name'] ?? ''),
+                    'tab_part_description' => $linePayload['name'] ?? '',
+                    'tab_ordered'          => (string)$ordered,
+                    'tab_delivered'        => (string)$delivered,
+                    'tab_outstanding'      => (string)$outstanding,
+                    'tab_observation'      => $linePayload['note'] ?? '',
+                ];
+            }
         }
 
         return [
-            'template_type' => $type,
-            'metadata' => [
-                'invoice_number' => $docNumber,
-                'delivery_note' => $docNumber,
-                'quote_no' => $docNumber,
-                'date' => $date,
-                'client_name' => $clientName,
-            ],
-            'headers' => ['Description', 'Quantité', 'Prix Unitaire', 'Total'],
-            'rows' => $rows,
-            'issuer_name' => $payload['x_studio_from'] ?? 'Émetteur',
+            'template_type' => $templateType,
+            'metadata'      => $metadata,
+            'rows'          => $rows,
         ];
     }
 
     /**
-     * Parse le JSON de correspondance présent dans le .env pour trouver l'e-mail lié au nom de l'émetteur
+     * Extrait le numéro de référence produit si présent sous forme de crochets [79731573]
      */
+    private function extractPartNumber(string $name): string
+    {
+        if (preg_match('/\[(.*?)\]/', $name, $matches)) {
+            return $matches[1];
+        }
+        return '';
+    }
+
     private function resolveRecipientEmail(array $payload): string
     {
-        // Chargement du dictionnaire JSON présent dans la variable d'environnement ODOO_USERS_MAP du fichier .env
         $usersMapRaw = env('ODOO_USERS_MAP', '{}');
         $usersMap = json_decode($usersMapRaw, true);
 
@@ -170,11 +239,9 @@ class ProcessOdooDocuments extends Command
         }
 
         $fallbackEmail = env('ODOO_FALLBACK_EMAIL', 'devasddaniel@gmail.com');
-        //cool
 
         $possibleSenderKeys = [
             'x_studio_from',
-            'x_studio_from1',
             'x_studio_user_from',
             'user_id',
             'invoice_user_id',
@@ -185,7 +252,6 @@ class ProcessOdooDocuments extends Command
             if (isset($payload[$key])) {
                 $value = $payload[$key];
 
-                // Si la valeur est au format [ID, Nom] (structure d'association standard Odoo)
                 if (is_array($value) && isset($value[1])) {
                     $name = $value[1];
                     if (isset($usersMap[$name])) {
@@ -193,26 +259,20 @@ class ProcessOdooDocuments extends Command
                     }
                 }
 
-                // Si la valeur est directement une chaîne de caractères (ex: le nom de l'utilisateur)
                 if (is_string($value) && isset($usersMap[$value])) {
                     return $usersMap[$value];
                 }
             }
         }
 
-        Log::warning("Aucune correspondance d'email trouvée dans ODOO_USERS_MAP pour l'émetteur du document. Email de secours utilisé.");
         return $fallbackEmail;
     }
 
-    /**
-     * Envoie l'e-mail en utilisant l'adresse de messagerie d'envoi du serveur définie dans le .env
-     */
     private function sendEmail(string $recipientEmail, array $data, string $pdfContent): void
     {
-        $docNumber = $data['metadata']['invoice_number'];
+        $docNumber = $data['metadata']['invoice_number'] ?? $data['metadata']['delivery_note'] ?? 'DOCUMENT';
         $templateType = $data['template_type'];
 
-        // Ces variables proviennent directement des configurations de Laravel liées aux clés MAIL_FROM_ADDRESS du .env
         $serverEmail = env('MAIL_FROM_ADDRESS');
         $serverName = env('MAIL_FROM_NAME', 'Serveur Odoo');
 
@@ -226,6 +286,6 @@ class ProcessOdooDocuments extends Command
                 ]);
         });
 
-        Log::info("E-mail envoyé depuis l'adresse du serveur ({$serverEmail}) à {$recipientEmail} pour le document {$docNumber}");
+        Log::info("E-mail envoyé depuis {$serverEmail} à {$recipientEmail} pour le document {$docNumber}");
     }
 }
