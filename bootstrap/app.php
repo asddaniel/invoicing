@@ -14,7 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         //
     })
-     ->withSchedule(function (Schedule $schedule) {
+     ->withSchedule(function ( $schedule) {
         // Planification de la commande Odoo toutes les minutes sans chevauchement
         $schedule->command('odoo:process')->everyMinute()->withoutOverlapping();
     })
