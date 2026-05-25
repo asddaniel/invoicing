@@ -170,6 +170,7 @@ class ProcessOdooDocuments extends Command
         }
 
         $fallbackEmail = env('ODOO_FALLBACK_EMAIL', 'devasddaniel@gmail.com');
+        //cool
 
         $possibleSenderKeys = [
             'x_studio_from',
