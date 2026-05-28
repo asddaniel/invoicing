@@ -238,7 +238,7 @@ class ProcessOdooDocuments extends Command
             $usersMap = [];
         }
 
-        $fallbackEmail = env('ODOO_FALLBACK_EMAIL', 'devasddaniel@gmail.com');
+        $fallbackEmail = env('ODOO_FALLBACK_EMAIL', 'luckabeya@epandprojects.com');
 
         $possibleSenderKeys = [
             'x_studio_from',
